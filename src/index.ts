@@ -8,7 +8,6 @@ import {
 import {
   asyncHandler,
   readBody,
-  readOptionalDate,
   readOptionalMetadata,
   readOptionalString,
   readRequiredString,
@@ -27,6 +26,7 @@ export type UniAuthExpressPasswordlessStrategy =
 export interface UniAuthExpressPasswordlessOptions {
   readonly auth: AuthPublicFacade;
   readonly transport?: UniAuthSessionTransportOptions;
+  readonly sessionExpiresAt?: () => Date;
 }
 
 export function createUniAuthEmailOtpRouter(
@@ -42,7 +42,6 @@ export function createUniAuthEmailOtpRouter(
         purpose: VerificationPurpose.SignIn,
         channel: OtpChannel.Email,
         target: readRequiredString(body, "email"),
-        now: readOptionalDate(body, "now"),
         metadata: readOptionalMetadata(body),
       });
 
@@ -61,8 +60,7 @@ export function createUniAuthEmailOtpRouter(
         ) as VerificationId,
         secret: readEmailOtpSecret(body),
         channel: OtpChannel.Email,
-        now: readOptionalDate(body, "now"),
-        sessionExpiresAt: readOptionalDate(body, "sessionExpiresAt"),
+        sessionExpiresAt: options.sessionExpiresAt?.(),
         metadata: readOptionalMetadata(body),
       });
 
@@ -110,11 +108,26 @@ async function sendPublicAuthResult(
   result: PublicAuthResult,
   options: UniAuthExpressPasswordlessOptions,
 ): Promise<void> {
-  await writeSessionCookie(response, result.sessionToken, options.transport);
-  response.status(200).json(toPublicAuthResponse(result));
+  if (options.transport?.cookie) {
+    await writeSessionCookie(response, result.sessionToken, options.transport);
+  }
+
+  response
+    .status(200)
+    .json(toPublicAuthResponse(result, !options.transport?.cookie));
 }
 
-function toPublicAuthResponse(result: PublicAuthResult): PublicAuthResult {
+type UniAuthPasswordlessAuthResponse = Omit<
+  PublicAuthResult,
+  "sessionToken"
+> & {
+  readonly sessionToken?: string;
+};
+
+function toPublicAuthResponse(
+  result: PublicAuthResult,
+  includeSessionToken: boolean,
+): UniAuthPasswordlessAuthResponse {
   return {
     user: {
       id: result.user.id,
@@ -160,7 +173,7 @@ function toPublicAuthResponse(result: PublicAuthResult): PublicAuthResult {
         ? { lastSeenAt: result.session.lastSeenAt }
         : {}),
     },
-    sessionToken: result.sessionToken,
+    ...(includeSessionToken ? { sessionToken: result.sessionToken } : {}),
     isNewUser: result.isNewUser,
     isNewIdentity: result.isNewIdentity,
   };

@@ -31,6 +31,7 @@ app.use(
   "/auth",
   createUniAuthEmailOtpRouter({
     auth: auth.public,
+    sessionExpiresAt: () => new Date(Date.now() + 1000 * 60 * 60 * 24 * 7),
     transport: {
       cookie: {
         name: "session",
@@ -45,8 +46,11 @@ app.use(
 );
 ```
 
-`auth` must be the public UniAuth facade from application-owned UniAuth service setup. The core
-service owns OTP verification, identity materialization, and session lifecycle.
+`auth` must be the public UniAuth facade from application-owned UniAuth service setup. Configure
+OTP email delivery in that service setup before mounting the router; this package calls the public
+OTP facade and does not expose raw OTP secrets or own a separate sender hook. The core service owns
+OTP verification, delivery dispatch through its configured sender, identity materialization, and
+session lifecycle.
 
 ## Routes
 
@@ -59,7 +63,6 @@ Request body:
 ```json
 {
   "email": "user@example.com",
-  "now": "2026-01-01T00:00:00.000Z",
   "metadata": {
     "requestId": "request_123"
   }
@@ -89,7 +92,6 @@ Request body:
 {
   "verificationId": "verification_123",
   "code": "123456",
-  "sessionExpiresAt": "2026-01-02T00:00:00.000Z",
   "metadata": {
     "requestId": "request_123"
   }
@@ -98,10 +100,13 @@ Request body:
 
 `secret` may be sent instead of `code`.
 
-The response contains the safe public auth result returned by the UniAuth public facade. If cookie
-transport is configured, the route writes the session cookie through `@alyldas/uniauth-express`
-transport helpers. The response does not expose token hashes, password hashes, secret hashes,
-provider tokens, raw provider payloads, or internal metadata.
+The response contains the safe public auth result returned by the UniAuth public facade. A session
+cookie is written only when `transport.cookie` is configured. In that mode, `sessionToken` is omitted
+from the JSON response so browser JavaScript does not receive the bearer token. Without cookie
+transport, the safe response includes `sessionToken`, and the application owns how to store or
+forward it. Request bodies do not control server time or session expiry; use `sessionExpiresAt` in
+router options for application-owned expiry policy. The response does not expose token hashes,
+password hashes, secret hashes, provider tokens, raw provider payloads, or internal metadata.
 
 ## Runtime Boundary
 
@@ -111,6 +116,7 @@ Application code owns:
 
 - UniAuth service construction
 - email sender runtime configuration
+- session expiration policy
 - SMTP or provider client lifecycle
 - database lifecycle and migrations
 - router mount path

@@ -48,7 +48,6 @@ describe("createUniAuthEmailOtpRouter", () => {
       purpose: "sign-in",
       channel: "email",
       target: "user@example.com",
-      now: new Date("2026-01-01T00:00:00.000Z"),
       metadata: { requestId: "request_123" },
     });
     expect(response.statusCode).toBe(202);
@@ -81,8 +80,6 @@ describe("createUniAuthEmailOtpRouter", () => {
       verificationId: "verification_123",
       secret: "123456",
       channel: "email",
-      now: new Date("2026-01-01T00:00:00.000Z"),
-      sessionExpiresAt: new Date("2026-01-02T00:00:00.000Z"),
       metadata: { requestId: "request_123" },
     });
     expect(response.statusCode).toBe(200);
@@ -151,6 +148,77 @@ describe("createUniAuthEmailOtpRouter", () => {
         },
       },
     ]);
+    expect(response.body).not.toHaveProperty("sessionToken");
+  });
+
+  it("does not write a session cookie when cookie transport is not configured", async () => {
+    const auth = createAuthFacade();
+    auth.otp.signIn.mockResolvedValue(createUnsafeAuthResult());
+
+    const response = await invokeRouter(createUniAuthEmailOtpRouter({ auth }), {
+      path: "/email-otp/sign-in",
+      body: {
+        verificationId: "verification_123",
+        secret: "123456",
+      },
+    });
+
+    expect(response.cookies).toEqual([]);
+    expect(response.body).toEqual({
+      user: {
+        id: "user_123",
+        displayName: "User",
+        email: "user@example.com",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      identity: {
+        id: "identity_123",
+        provider: "email-otp",
+        status: "active",
+        email: "user@example.com",
+        emailVerified: true,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      session: {
+        id: "session_123",
+        status: "active",
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        expiresAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+      sessionToken: "session-token",
+      isNewUser: false,
+      isNewIdentity: false,
+    });
+    expect(response.body).toMatchObject({ sessionToken: "session-token" });
+  });
+
+  it("uses application-owned session expiration configuration", async () => {
+    const auth = createAuthFacade();
+    auth.otp.signIn.mockResolvedValue(createUnsafeAuthResult());
+
+    await invokeRouter(
+      createUniAuthEmailOtpRouter({
+        auth,
+        sessionExpiresAt: () => new Date("2026-01-03T00:00:00.000Z"),
+      }),
+      {
+        path: "/email-otp/sign-in",
+        body: {
+          verificationId: "verification_123",
+          secret: "123456",
+          sessionExpiresAt: "2099-01-01T00:00:00.000Z",
+        },
+      },
+    );
+
+    expect(auth.otp.signIn).toHaveBeenCalledWith({
+      verificationId: "verification_123",
+      secret: "123456",
+      channel: "email",
+      sessionExpiresAt: new Date("2026-01-03T00:00:00.000Z"),
+    });
   });
 
   it("does not expose internal auth fields", async () => {
