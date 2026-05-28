@@ -120,7 +120,7 @@ export function createUniAuthEmailOtpRouter(
       });
       const event = toEmailOtpStartedEvent(result, email, metadata);
 
-      await options.onEmailOtpStarted?.(event);
+      await invokeLifecycleHook(() => options.onEmailOtpStarted?.(event));
 
       response
         .status(202)
@@ -148,8 +148,10 @@ export function createUniAuthEmailOtpRouter(
           metadata,
         });
       } catch (error) {
-        await options.onEmailOtpSignInFailed?.(
-          toEmailOtpSignInFailedEvent(error, verificationId, metadata),
+        await invokeLifecycleHook(() =>
+          options.onEmailOtpSignInFailed?.(
+            toEmailOtpSignInFailedEvent(error, verificationId, metadata),
+          ),
         );
         throw error;
       }
@@ -324,6 +326,14 @@ function categorizeEmailOtpSignInFailure(error: unknown): {
   }
 
   return { category: "unexpected", reason: "unknown_error" };
+}
+
+async function invokeLifecycleHook(callback: () => unknown): Promise<void> {
+  try {
+    await callback();
+  } catch {
+    return;
+  }
 }
 
 function isUniAuthErrorLike(error: unknown): error is UniAuthError {

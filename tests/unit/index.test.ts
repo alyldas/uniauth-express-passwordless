@@ -180,6 +180,37 @@ describe("createUniAuthEmailOtpRouter", () => {
     expect(onEmailOtpStarted).toHaveBeenCalledAfter(auth.otp.start);
   });
 
+  it("does not let start lifecycle hook failures suppress successful challenges", async () => {
+    const auth = createAuthFacade();
+    auth.otp.start.mockResolvedValue({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    } as never);
+
+    const response = await invokeRouter(
+      createUniAuthEmailOtpRouter({
+        auth,
+        onEmailOtpStarted: () => {
+          throw new Error("metrics backend is unavailable");
+        },
+      }),
+      {
+        path: "/email-otp/start",
+        body: {
+          email: "user@example.com",
+        },
+      },
+    );
+
+    expect(response.statusCode).toBe(202);
+    expect(response.body).toEqual({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    });
+  });
+
   it("returns a safe sign-in response", async () => {
     const auth = createAuthFacade();
     auth.otp.signIn.mockResolvedValue(createUnsafeAuthResult());
@@ -428,6 +459,36 @@ describe("createUniAuthEmailOtpRouter", () => {
       error,
       metadata: { requestId: "request_123" },
     });
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      error: REQUEST_CANNOT_BE_COMPLETED_MESSAGE,
+    });
+  });
+
+  it("preserves the original sign-in error when the failure hook rejects", async () => {
+    const auth = createAuthFacade();
+    const originalError = new UniAuthError(
+      UniAuthErrorCode.VerificationInvalidSecret,
+      "Verification secret is invalid.",
+    );
+    auth.otp.signIn.mockRejectedValue(originalError);
+
+    const response = await invokeRouter(
+      createUniAuthEmailOtpRouter({
+        auth,
+        onEmailOtpSignInFailed: () =>
+          Promise.reject(new Error("metrics backend is unavailable")),
+      }),
+      {
+        path: "/email-otp/sign-in",
+        body: {
+          verificationId: "verification_123",
+          code: "000000",
+        },
+        mapErrors: true,
+      },
+    );
+
     expect(response.statusCode).toBe(400);
     expect(response.body).toEqual({
       error: REQUEST_CANNOT_BE_COMPLETED_MESSAGE,
