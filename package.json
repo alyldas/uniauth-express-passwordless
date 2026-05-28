@@ -1,6 +1,6 @@
 {
   "name": "@alyldas/uniauth-express-passwordless",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Passwordless-first Express strategy package for UniAuth.",
   "type": "module",
   "engines": {
