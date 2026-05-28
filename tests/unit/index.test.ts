@@ -9,6 +9,7 @@ import type { Request, Response, Router } from "express";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createEmailOtpTestOutbox,
   createUniAuthEmailOtpRouter,
   UNI_AUTH_EXPRESS_PASSWORDLESS_STRATEGY,
   type UniAuthExpressPasswordlessStrategy,
@@ -57,8 +58,126 @@ describe("createUniAuthEmailOtpRouter", () => {
       delivery: "email",
     });
     expect(JSON.stringify(response.body)).not.toContain("secret");
+    expect(JSON.stringify(response.body)).not.toContain("code");
     expect(JSON.stringify(response.body)).not.toContain("secretHash");
+    expect(JSON.stringify(response.body)).not.toContain("tokenHash");
+    expect(JSON.stringify(response.body)).not.toContain("passwordHash");
     expect(JSON.stringify(response.body)).not.toContain("metadata");
+  });
+
+  it("does not expose a debug code unless start response exposure is explicitly enabled", async () => {
+    const auth = createAuthFacade();
+    auth.otp.start.mockResolvedValue({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    } as never);
+
+    const response = await invokeRouter(
+      createUniAuthEmailOtpRouter({
+        auth,
+        emailOtpDebug: {
+          resolveCode: () => "123456",
+          isProduction: () => false,
+        },
+      }),
+      {
+        path: "/email-otp/start",
+        body: {
+          email: "user@example.com",
+        },
+      },
+    );
+
+    expect(response.body).toEqual({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    });
+  });
+
+  it("adds a debug code to the start response only for explicit non-production debug exposure", async () => {
+    const auth = createAuthFacade();
+    auth.otp.start.mockResolvedValue({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    } as never);
+
+    const response = await invokeRouter(
+      createUniAuthEmailOtpRouter({
+        auth,
+        emailOtpDebug: {
+          exposeCodeInStartResponse: true,
+          resolveCode: ({ verificationId, email }) =>
+            verificationId === "verification_123" &&
+            email === "user@example.com"
+              ? "123456"
+              : undefined,
+          isProduction: () => false,
+        },
+      }),
+      {
+        path: "/email-otp/start",
+        body: {
+          email: "user@example.com",
+        },
+      },
+    );
+
+    expect(response.statusCode).toBe(202);
+    expect(response.body).toEqual({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+      debug: { code: "123456" },
+    });
+  });
+
+  it("rejects debug code exposure in production", () => {
+    const auth = createAuthFacade();
+
+    expect(() =>
+      createUniAuthEmailOtpRouter({
+        auth,
+        emailOtpDebug: {
+          exposeCodeInStartResponse: true,
+          resolveCode: () => "123456",
+          isProduction: () => true,
+        },
+      }),
+    ).toThrow("Email OTP debug code exposure is disabled in production.");
+    expect(auth.otp.start).not.toHaveBeenCalled();
+  });
+
+  it("calls the start lifecycle hook after the OTP challenge is started", async () => {
+    const auth = createAuthFacade();
+    const onEmailOtpStarted = vi.fn();
+    auth.otp.start.mockResolvedValue({
+      verificationId: "verification_123",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+    } as never);
+
+    await invokeRouter(
+      createUniAuthEmailOtpRouter({ auth, onEmailOtpStarted }),
+      {
+        path: "/email-otp/start",
+        body: {
+          email: " user@example.com ",
+          metadata: { requestId: "request_123" },
+        },
+      },
+    );
+
+    expect(onEmailOtpStarted).toHaveBeenCalledWith({
+      verificationId: "verification_123",
+      email: "user@example.com",
+      expiresAt: new Date("2026-01-01T00:05:00.000Z"),
+      delivery: "email",
+      metadata: { requestId: "request_123" },
+    });
+    expect(onEmailOtpStarted).toHaveBeenCalledAfter(auth.otp.start);
   });
 
   it("returns a safe sign-in response", async () => {
@@ -278,6 +397,64 @@ describe("createUniAuthEmailOtpRouter", () => {
 
     expect(response.statusCode).toBe(429);
     expect(response.body).toEqual({ error: TOO_MANY_AUTH_ATTEMPTS_MESSAGE });
+  });
+
+  it("calls the sign-in failure hook with server-side diagnostics without changing the public error", async () => {
+    const auth = createAuthFacade();
+    const onEmailOtpSignInFailed = vi.fn();
+    const error = new UniAuthError(
+      UniAuthErrorCode.VerificationInvalidSecret,
+      "Verification secret is invalid.",
+    );
+    auth.otp.signIn.mockRejectedValue(error);
+
+    const response = await invokeRouter(
+      createUniAuthEmailOtpRouter({ auth, onEmailOtpSignInFailed }),
+      {
+        path: "/email-otp/sign-in",
+        body: {
+          verificationId: "verification_123",
+          code: "000000",
+          metadata: { requestId: "request_123" },
+        },
+        mapErrors: true,
+      },
+    );
+
+    expect(onEmailOtpSignInFailed).toHaveBeenCalledWith({
+      verificationId: "verification_123",
+      category: "invalid_otp",
+      reason: "verification_invalid_secret",
+      error,
+      metadata: { requestId: "request_123" },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.body).toEqual({
+      error: REQUEST_CANNOT_BE_COMPLETED_MESSAGE,
+    });
+  });
+
+  it("provides a local test outbox sender and resolver for smoke tests", async () => {
+    const outbox = createEmailOtpTestOutbox();
+
+    await outbox.sender.sendEmail({
+      to: "user@example.com",
+      subject: "Your sign-in code",
+      text: "Your UniAuth sign-in code is 123456.",
+    });
+
+    expect(outbox.listMessages()).toEqual([
+      {
+        to: "user@example.com",
+        subject: "Your sign-in code",
+        text: "Your UniAuth sign-in code is 123456.",
+      },
+    ]);
+    expect(outbox.findLatestCode({ email: "user@example.com" })).toBe("123456");
+
+    outbox.clear();
+
+    expect(outbox.listMessages()).toEqual([]);
   });
 });
 
