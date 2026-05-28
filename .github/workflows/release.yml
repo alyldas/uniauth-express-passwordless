@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    runs-on:
+      - self-hosted
+      - linux
+      - x64
+      - node22
+      - uniauth
+      - release
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: uniauth-express-passwordless
+    steps:
+      - name: Checkout core
+        uses: actions/checkout@v6
+        with:
+          repository: alyldas/uniauth-core
+          path: uniauth-core
+      - name: Checkout express
+        uses: actions/checkout@v6
+        with:
+          repository: alyldas/uniauth-express
+          path: uniauth-express
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          path: uniauth-express-passwordless
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: uniauth-express-passwordless/package-lock.json
+          registry-url: https://npm.pkg.github.com
+          scope: "@alyldas"
+      - name: Build core
+        working-directory: uniauth-core
+        run: npm ci && npm run build
+      - name: Build express
+        working-directory: uniauth-express
+        run: npm ci && npm run build
+      - name: Install dependencies
+        run: npm ci
+      - name: Check
+        run: npm run check
+      - name: Publish
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

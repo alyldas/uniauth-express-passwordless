@@ -1,0 +1,10 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "initial-version": "0.1.0",
+      "package-name": "@alyldas/uniauth-express-passwordless",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
