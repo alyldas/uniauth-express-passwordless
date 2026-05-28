@@ -1,0 +1,90 @@
+{
+  "name": "@alyldas/uniauth-express-passwordless",
+  "version": "0.1.0",
+  "description": "Passwordless-first Express strategy package for UniAuth.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "PolyForm-Strict-1.0.0",
+  "author": {
+    "name": "alyldas",
+    "email": "alyldas@ya.ru"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alyldas/uniauth-express-passwordless.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alyldas/uniauth-express-passwordless/issues"
+  },
+  "homepage": "https://github.com/alyldas/uniauth-express-passwordless#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://npm.pkg.github.com"
+  },
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.build.json",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build && npm run lint:package && npm run test:types-package && npm run pack:dry",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint .",
+    "lint:package": "npm_config_cache=./.npm-cache publint",
+    "pack:dry": "npm_config_cache=./.npm-cache npm pack --dry-run",
+    "prepack": "npm run build",
+    "prepare": "node -e \"process.exit(0)\"",
+    "test": "vitest run --config vitest.config.ts",
+    "test:types-package": "npm_config_cache=./.npm-cache node scripts/check-types-package.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "keywords": [
+    "auth",
+    "authentication",
+    "express",
+    "passwordless",
+    "otp",
+    "typescript",
+    "uniauth"
+  ],
+  "peerDependencies": {
+    "@alyldas/uniauth-core": ">=0.1.0 <1",
+    "@alyldas/uniauth-express": ">=0.1.0 <1",
+    "express": "^5.0.0"
+  },
+  "devDependencies": {
+    "@alyldas/uniauth-core": "file:../uniauth-core",
+    "@alyldas/uniauth-express": "file:../uniauth-express",
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@arethetypeswrong/core": "^0.18.2",
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.19",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "express": "^5.2.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
+    "publint": "^0.3.21",
+    "tsup": "^8.0.0",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.60.0",
+    "vitest": "^4.0.0"
+  },
+  "packageManager": "npm@10.9.7"
+}
